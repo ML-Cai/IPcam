@@ -30,11 +30,10 @@ void video_decoder_init()
 
 	/* alloc FFmpeg resource*/
 	VOD_decoder.c_context= avcodec_alloc_context3(VOD_decoder.codec);
-	VOD_decoder.frame_RGB24 = avcodec_alloc_frame();
-	VOD_decoder.frame_YUV420P = avcodec_alloc_frame();
+	VOD_decoder.frame_RGB24 = av_frame_alloc();
+	VOD_decoder.frame_YUV420P = av_frame_alloc();
 
-	avpicture_fill((AVPicture *)VOD_decoder.frame_RGB24, VOD_decoder.buffer, PIX_FMT_RGB24, CAMERA_WIDTH, CAMERA_HEIGHT);	
-
+	avpicture_fill((AVPicture *)VOD_decoder.frame_RGB24, VOD_decoder.buffer, PIX_FMT_RGB24, CAMERA_WIDTH, CAMERA_HEIGHT);
 
 	/* put sample parameters */
 	VOD_decoder.c_context->bit_rate = CAMERA_WIDTH * CAMERA_HEIGHT * 4;

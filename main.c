@@ -41,7 +41,7 @@ unsigned char RGB565_buffer[240][320][2];
 /* ------------------------------------------------------------ */
 static void mainloop()
 {
-        unsigned int count = 100;
+        unsigned int count = 5;
 
 	int s_socket ;
 	struct sockaddr_in dest;
