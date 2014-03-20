@@ -81,7 +81,7 @@ static void mainloop()
 			total_size +=frame_size;
 //			printf("frame_size %d\n", frame_size);
 
-/*
+
 			memcpy(&Buffer[0], &id, sizeof(int));
 			memcpy(&Buffer[4], &frame_size, sizeof(int));
 			sendto(s_socket, &Buffer[0], 8, 0, (struct sockaddr *)&dest, sizeof(dest));
@@ -94,7 +94,7 @@ static void mainloop()
 				id ++ ;
 				if(frame_size <1024) offset = frame_size ;
 			}
-*/
+
 		}
 		/* EAGAIN - continue select loop. */
 	}
