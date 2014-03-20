@@ -33,9 +33,10 @@ void init_device()
 	/* Image Format */
 	struct v4l2_format fmt = {0};
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width = 320;
-	fmt.fmt.pix.height = 240;
-	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.width = 640;
+	fmt.fmt.pix.height = 480;
+//	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
 	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
 
 	if (ioctl(cam, VIDIOC_S_FMT, &fmt) == -1) {
@@ -134,8 +135,7 @@ void show_device_info()
 	memset(&fmt, 0, sizeof(fmt));
 	fmt.index = 0;
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	while (ioctl(cam, VIDIOC_ENUM_FMT, &fmt) == 0)
-	{
+	while (ioctl(cam, VIDIOC_ENUM_FMT, &fmt) == 0) {
 		fmt.index++;
 		printf("{ pixelformat = %c%c%c%c , description = %s }\n",
 			fmt.pixelformat & 0xFF, (fmt.pixelformat >> 8) & 0xFF, (fmt.pixelformat >> 16) & 0xFF,

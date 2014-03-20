@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/time.h>
 
 #define __STDC_CONSTANT_MACROS
 #include <libavformat/avformat.h>
@@ -30,7 +31,7 @@ extern int cam ;
 /* ------------------------------------------------------------ */
 static void mainloop()
 {
-        unsigned int count = 3000;
+        unsigned int count = 100;
 
 	int s_socket ;
 	struct sockaddr_in dest;
@@ -43,6 +44,10 @@ static void mainloop()
 	dest.sin_port = htons(NET_PORT);
 	inet_aton(NET_HOST, &dest.sin_addr);
 
+	struct timeval t_start,t_end;
+	double uTime =0.0;
+	int total_size=0;
+	gettimeofday(&t_start, NULL);
 	while (count-- > 0) {
 		fd_set fds;
 		struct timeval tv;
@@ -73,6 +78,10 @@ static void mainloop()
 			unsigned char * buf_ptr = NULL;
 			int frame_size = video_encoder(buffer.start, &buf_ptr);
 
+			total_size +=frame_size;
+//			printf("frame_size %d\n", frame_size);
+
+/*
 			memcpy(&Buffer[0], &id, sizeof(int));
 			memcpy(&Buffer[4], &frame_size, sizeof(int));
 			sendto(s_socket, &Buffer[0], 8, 0, (struct sockaddr *)&dest, sizeof(dest));
@@ -85,9 +94,15 @@ static void mainloop()
 				id ++ ;
 				if(frame_size <1024) offset = frame_size ;
 			}
+*/
 		}
 		/* EAGAIN - continue select loop. */
 	}
+	gettimeofday(&t_end, NULL);
+	uTime = (t_end.tv_sec -t_start.tv_sec)*1000000.0 +(t_end.tv_usec -t_start.tv_usec);
+	printf("Total size :%d bit\n", total_size);
+	printf("Time :%lf us\n", uTime);
+	printf("kb/s %lf\n",total_size/ (uTime/1000.0));
 }
 /* ------------------------------------------------------------ */
 int main()

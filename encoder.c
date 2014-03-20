@@ -10,8 +10,8 @@
 #include "encoder.h"
 
 /* ------------------------------------------------------------ */
-#define CAMERA_WIDTH	320
-#define CAMERA_HEIGHT	240
+#define CAMERA_WIDTH	640
+#define CAMERA_HEIGHT	480
 /* ------------------------------------------------------------ */
 int cam ;
 struct M_encoder_struct M_encoder ;
@@ -26,7 +26,6 @@ void video_encoder_init()
 		goto ERROR_EXIT;
 	}
 
-	//M_encoder.c_context= avcodec_alloc_context();
 	M_encoder.c_context= avcodec_alloc_context3(M_encoder.codec);
 	M_encoder.picture_src= avcodec_alloc_frame();
 
@@ -37,6 +36,7 @@ void video_encoder_init()
 	/* resolution must be a multiple of two */
 	M_encoder.c_context->width = CAMERA_WIDTH;
 	M_encoder.c_context->height = CAMERA_HEIGHT;
+
 	/* frames per second */
 	M_encoder.c_context->time_base.num = 1 ;
 	M_encoder.c_context->time_base.den = 30;
@@ -54,6 +54,7 @@ void video_encoder_init()
 	/* prepare Codec buffer */
 	M_encoder.outbuf_size = 100000;
 	M_encoder.buffer = (unsigned char *)malloc(M_encoder.outbuf_size);
+	memset(M_encoder.buffer, 0 ,M_encoder.outbuf_size);
 
 	//M_encoder.picture_buf = (unsigned char *)malloc(CAMERA_WIDTH * CAMERA_HEIGHT * 2); /* size for YUV 420 */
 	M_encoder.picture_buf = &YUV420P_buf[0][0][0];
@@ -66,9 +67,24 @@ void video_encoder_init()
 	M_encoder.picture_src->linesize[2] = M_encoder.c_context->width / 2;
 
 	/* prepare image conveter */
+/*
+	M_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_NV12, //PIX_FMT_YUYV422,
+                                                CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,  //PIX_FMT_YUV420P,
+                                                SWS_POINT, NULL, NULL, NULL);
+
+*/
+
+        M_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P, //PIX_FMT_YUYV422,
+                                                CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,  //PIX_FMT_YUV420P,
+                                                SWS_POINT, NULL, NULL, NULL);
+
+
+/*
 	M_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUYV422, //PIX_FMT_YUYV422,
 						CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,  //PIX_FMT_YUV420P,
 						SWS_POINT, NULL, NULL, NULL);
+*/
+
     if(M_encoder.img_convert_ctx == NULL) {
         perror("Cannot initialize the conversion context!\n");
         goto ERROR_EXIT;
@@ -99,11 +115,15 @@ int video_encoder(unsigned char *raw_buf ,unsigned char **ret_buf)
 	const unsigned char *raw_buf_ptr = raw_buf ;
 	int raw_buf_linesize = CAMERA_WIDTH *2 ;
 
+
 	/* Scale and transform YUV422 format to YUV420P*/
+/*
 	sws_scale(M_encoder.img_convert_ctx,
 		&raw_buf_ptr , &raw_buf_linesize,
 		0, M_encoder.c_context->height,
 		M_encoder.picture_src->data, M_encoder.picture_src->linesize);
+*/
+	memcpy(M_encoder.picture_src->data[0], raw_buf ,sizeof(char)*CAMERA_WIDTH* CAMERA_HEIGHT*2 );
 
 	static int pts = 0;
 	static int frame_size = 0;
@@ -112,10 +132,8 @@ int video_encoder(unsigned char *raw_buf ,unsigned char **ret_buf)
 					M_encoder.buffer,
 					M_encoder.outbuf_size,
 					M_encoder.picture_src);
+	/* switch to next frame , and return buffer */
 	pts++;
-//	if(pts <100)
-//		frame_size += out_size;
-//	printf("%d \t%lf\n",frame_size ,frame_size/1024.0f);
 	*ret_buf = M_encoder.buffer ;
 	return out_size ;
 }
