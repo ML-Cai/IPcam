@@ -23,7 +23,7 @@
 
 /* ------------------------------------------------------------ */
 #define NET_PORT        5000
-#define NET_HOST        "140.125.33.214"
+#define NET_HOST        ""
 #define NET_BUFFER_SIZE 1028
 /* ------------------------------------------------------------ */
 extern struct vbuffer buffer ;
