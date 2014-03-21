@@ -31,7 +31,6 @@ void video_encoder_init()
 
 	/* put sample parameters */
 	M_encoder.c_context->bit_rate = CAMERA_WIDTH * CAMERA_HEIGHT * 4;
-	//M_encoder.c_context->bit_rate = 3000000;
 
 	/* resolution must be a multiple of two */
 	M_encoder.c_context->width = CAMERA_WIDTH;
@@ -52,12 +51,10 @@ void video_encoder_init()
 	}
 
 	/* prepare Codec buffer */
-	M_encoder.outbuf_size = 100000;
+	M_encoder.outbuf_size = CAMERA_WIDTH*CAMERA_HEIGHT *2;
 	M_encoder.buffer = (unsigned char *)malloc(M_encoder.outbuf_size);
 	memset(M_encoder.buffer, 0 ,M_encoder.outbuf_size);
 
-	//M_encoder.picture_buf = (unsigned char *)malloc(CAMERA_WIDTH * CAMERA_HEIGHT * 2); /* size for YUV 420 */
-	M_encoder.picture_buf = &YUV420P_buf[0][0][0];
 	M_encoder.picture_src->data[0] = M_encoder.picture_buf;
 	M_encoder.picture_src->data[1] = M_encoder.picture_src->data[0] + (CAMERA_WIDTH * CAMERA_HEIGHT);
 	M_encoder.picture_src->data[2] = M_encoder.picture_src->data[1] + (CAMERA_WIDTH * CAMERA_HEIGHT) / 4;
@@ -135,5 +132,6 @@ int video_encoder(unsigned char *raw_buf ,unsigned char **ret_buf)
 	/* switch to next frame , and return buffer */
 	pts++;
 	*ret_buf = M_encoder.buffer ;
+
 	return out_size ;
 }
