@@ -11,7 +11,7 @@ struct M_encoder_struct
 
 	unsigned char *buffer ;
 	int outbuf_size;
-	unsigned char *picture_buf;
+	unsigned char *picture_buf;;
 };
 /* ----------------------------------------------------------- */
 #endif

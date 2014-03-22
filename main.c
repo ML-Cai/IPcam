@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
+#include <linux/fb.h>
 
 #define __STDC_CONSTANT_MACROS
 #include <libavformat/avformat.h>
@@ -28,6 +29,15 @@
 /* ------------------------------------------------------------ */
 extern struct vbuffer buffer ;
 extern int cam ;
+
+int FB ;
+unsigned char *FB_ptr =NULL;
+struct fb_var_screeninfo var_info ;
+struct fb_fix_screeninfo fix_info ;
+
+
+unsigned char RGB565_buffer[240][320][2];
+
 /* ------------------------------------------------------------ */
 static void mainloop()
 {
@@ -48,6 +58,7 @@ static void mainloop()
 	double uTime =0.0;
 	int total_size=0;
 	gettimeofday(&t_start, NULL);
+
 	while (count-- > 0) {
 		fd_set fds;
 		struct timeval tv;
@@ -58,7 +69,7 @@ static void mainloop()
 		FD_SET(cam, &fds);
 
 		/* Timeout. */
-		tv.tv_sec = 1;
+		tv.tv_sec = 2;
 		tv.tv_usec = 0;
 
 		r = select(cam+1, &fds, NULL, NULL, &tv);
@@ -77,11 +88,44 @@ static void mainloop()
 			int id =0;
 			unsigned char * buf_ptr = NULL;
 			int frame_size = video_encoder(buffer.start, &buf_ptr);
-
 			total_size +=frame_size;
 //			printf("frame_size %d\n", frame_size);
 
+			/* ------------------------------------- */
+			/* decode for test*/
+			unsigned char *RGB_buffer =NULL;
+			printf("1\n");
+
+
+			if (frame_size >0) {
+
+				printf("encoder\n");
+				video_decoder(buf_ptr, frame_size, &RGB_buffer);
+
+
+				printf("fmt\n");
+				RGB24_to_RGB565(RGB_buffer, RGB565_buffer, 320, 240);
+
+				//memset(FB_ptr, 0, sizeof(char)* 320*240 *2);
+				//memcpy(FB_ptr, RGB565_buffer, sizeof(char)* 320*240 *2);
+				int x , y ;
+				int index =0;
+				for(y = 0 ; y < 240 ; y++) {
+					for(x = 0 ; x < 320 ; x++) {
+						index = (y * 1280 + x) *2;
+						*(FB_ptr + index) = RGB565_buffer[y][x][0];
+						*(FB_ptr + index+1) = RGB565_buffer[y][x][1];
+
+					}
+				}
+				printf("OK\n");
+
+			}
+
+			/* ------------------------------------- */
+
 /*
+
 			memcpy(&Buffer[0], &id, sizeof(int));
 			memcpy(&Buffer[4], &frame_size, sizeof(int));
 			sendto(s_socket, &Buffer[0], 8, 0, (struct sockaddr *)&dest, sizeof(dest));
@@ -95,6 +139,7 @@ static void mainloop()
 				if(frame_size <1024) offset = frame_size ;
 			}
 */
+
 		}
 		/* EAGAIN - continue select loop. */
 	}
@@ -107,12 +152,73 @@ static void mainloop()
 /* ------------------------------------------------------------ */
 int main()
 {
+	FB = open("/dev/fb0", O_RDWR);
+	if(!FB) {
+		fprintf(stderr, "open /dev/fb0 error\n");
+		return -1;
+	}
+
+	if(ioctl(FB, FBIOGET_FSCREENINFO, &fix_info)) {
+		fprintf(stderr, "FBIOGET_FSCREENINFO  error\n");
+		return -1;
+	}
+
+	if(ioctl(FB, FBIOGET_VSCREENINFO, &var_info)) {
+		fprintf(stderr, "FBIOGET_VSCREENINFO  error\n");
+		return -1;
+	}
+
+
+	printf("frame buffer : %d %d, %dbpp\n",var_info.xres, var_info.yres, var_info.bits_per_pixel);
+	long int screensize = (var_info.xres*var_info.yres*var_info.bits_per_pixel )/8;
+	printf("screensize : %d\n",screensize);
+
+
+	FB_ptr =(unsigned char*)mmap(0, screensize, PROT_READ | PROT_WRITE, MAP_SHARED, FB, 0);
+	if(FB_ptr ==NULL){
+		fprintf(stderr, "mmap error\n");
+		return -1;
+	}
+
+
+/*
+	int x ,y ,index;
+	unsigned char max ;
+	unsigned char R =0 , G =0, B=0;
+
+	short *pen = NULL ;
+	short RGB565 ;
+	printf("%d\n", sizeof(short));
+	for(y = 0 ; y < 200 ; y ++) {
+		for(x = 0 ; x < 200 ; x ++) {
+			index = (y * var_info.xres + x) *2 ;
+			pen = (short *)(FB_ptr + index) ;
+
+			R =255 ;
+			G =255;
+			B =0;
+
+			*pen = ((R >>3) <<11) | ((G>>2) << 5) | (B>>3);
+			//printf(" %d %d %d , %d\n",R ,G ,B ,*pen);
+
+//			*(FB_ptr + index) = 255;
+//			*(FB_ptr + index +1) = 255;
+		}
+	}
+
+	munmap(FB_ptr, screensize);
+	close(FB);
+*/
+	/* -------------------------------------- */
+
+
+
 	open_device();
 
 	avcodec_register_all();
 	av_register_all();
 	video_encoder_init();
-
+	video_decoder_init();
 	printf("OK\n");
 
 	show_device_info();
@@ -121,7 +227,11 @@ int main()
 
 	mainloop();
 
+	munmap(FB_ptr, screensize);
+	close(FB);
+
 	video_encoder_release();
+	video_decoder_release();
 	stop_capturing();
 	release_device();
 	close(cam);

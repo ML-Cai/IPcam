@@ -10,8 +10,8 @@
 #include "encoder.h"
 
 /* ------------------------------------------------------------ */
-#define CAMERA_WIDTH	640
-#define CAMERA_HEIGHT	480
+#define CAMERA_WIDTH	320
+#define CAMERA_HEIGHT	240
 /* ------------------------------------------------------------ */
 int cam ;
 struct M_encoder_struct M_encoder ;
@@ -19,8 +19,8 @@ unsigned char YUV420P_buf[CAMERA_HEIGHT][CAMERA_WIDTH][2] ={0};
 /* ------------------------------------------------------------ */
 void video_encoder_init()
 {
-	M_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-//	M_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+//	M_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+	M_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
 	if (!M_encoder.codec) {
 		perror("codec not found\n");
 		goto ERROR_EXIT;
@@ -55,6 +55,7 @@ void video_encoder_init()
 	M_encoder.buffer = (unsigned char *)malloc(M_encoder.outbuf_size);
 	memset(M_encoder.buffer, 0 ,M_encoder.outbuf_size);
 
+	M_encoder.picture_buf = &YUV420P_buf[0][0][0];
 	M_encoder.picture_src->data[0] = M_encoder.picture_buf;
 	M_encoder.picture_src->data[1] = M_encoder.picture_src->data[0] + (CAMERA_WIDTH * CAMERA_HEIGHT);
 	M_encoder.picture_src->data[2] = M_encoder.picture_src->data[1] + (CAMERA_WIDTH * CAMERA_HEIGHT) / 4;
