@@ -10,13 +10,15 @@
 #include "decoder.h"
 
 /* ------------------------------------------------------------ */
-#define CAMERA_WIDTH	320
-#define CAMERA_HEIGHT	240
+static int CAMERA_WIDTH = 0;
+static int CAMERA_HEIGHT =0;
 /* ------------------------------------------------------------ */
 struct decoder_struct VOD_decoder ;
 /* ------------------------------------------------------------ */
-void video_decoder_init()
+void video_decoder_init(int width, int hegiht, int pixel_fmt)
 {
+	CAMERA_WIDTH = width ;
+	CAMERA_HEIGHT = hegiht ;
 //	VOD_decoder.codec = avcodec_find_decoder(AV_CODEC_ID_H264);
 	VOD_decoder.codec = avcodec_find_decoder(AV_CODEC_ID_MPEG4);
 	if (!VOD_decoder.codec) {
@@ -76,7 +78,6 @@ ERROR_EXIT:
 /* --------------------------------------------------------------------------------------- */
 void video_decoder_release()
 {
-//	free(VOD_decoder.picture_buf);
 	free(VOD_decoder.buffer);
 
 	avcodec_close(VOD_decoder.c_context);
@@ -94,21 +95,17 @@ int video_decoder(unsigned char *raw_buf ,int buf_size, unsigned char **ret_buf)
 	av_init_packet(&VOD_pkt);
 	VOD_pkt.data = raw_buf;
 	VOD_pkt.size = buf_size;
-	printf("%d\n", VOD_pkt.size);
 
 	if (VOD_pkt.size == 0) {
 		fprintf(stderr, "0 size packet\n");
 		return 0;
 	}
-	printf("decode\n");
 	delen = avcodec_decode_video2(VOD_decoder.c_context, VOD_decoder.frame_YUV420P, &got_picture, &VOD_pkt);
 	if (delen < 0) {
 		fprintf(stderr, "Error while decoding frame \n");
 		return 0;
 	}
-	printf("%d\n", delen);
 	if (got_picture) {
-		printf("got pictur\n");
 		/* format to RGB */
 		sws_scale(VOD_decoder.img_convert_ctx,
 			VOD_decoder.frame_YUV420P->data, VOD_decoder.frame_YUV420P->linesize ,

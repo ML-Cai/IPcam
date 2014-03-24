@@ -11,10 +11,9 @@ struct decoder_struct
 
 	unsigned char *buffer ;
 	int outbuf_size;
-	unsigned char *picture_buf;
 };
 
-void video_decoder_init();
+void video_decoder_init(int width, int hegiht, int pixel_fmt);
 void video_decoder_release();
 int video_decoder(unsigned char *raw_buf ,int buf_size, unsigned char **ret_buf);
 /* ----------------------------------------------------------- */
