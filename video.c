@@ -14,7 +14,9 @@
 
 #include "video.h"
 /* ------------------------------------------------------------ */
-struct vbuffer buffer ;
+#define VIDEO_BUFFER_COUNT	20
+static int vbuffer_count = VIDEO_BUFFER_COUNT;
+struct vbuffer buffer[VIDEO_BUFFER_COUNT] ;
 /* ------------------------------------------------------------ */
 void webcam_init(int width, int height, int WC)
 {
@@ -32,7 +34,11 @@ void webcam_init(int width, int height, int WC)
 	fmt.fmt.pix.height = height;
 	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_YUYV;
 //	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
+//	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_MJPEG;
+
 	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
+//	fmt.fmt.pix.field = V4L2_FIELD_ANY;
+//	fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
 	if (ioctl(WC, VIDIOC_S_FMT, &fmt) == -1) {
 		fprintf(stderr, "Setting Pixel Format");
@@ -41,7 +47,7 @@ void webcam_init(int width, int height, int WC)
 
  	/* Request Buffers and Create mmap */
 	struct v4l2_requestbuffers req = {0};
-	req.count = 1;
+	req.count = VIDEO_BUFFER_COUNT;
 	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	req.memory = V4L2_MEMORY_MMAP;
 	if (ioctl(WC, VIDIOC_REQBUFS, &req) == -1) {
@@ -49,18 +55,27 @@ void webcam_init(int width, int height, int WC)
 		return ;
 	}
 
-	/* Query Buffer */
-	struct v4l2_buffer buf = {0};
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	buf.memory = V4L2_MEMORY_MMAP;
-	buf.index = 0;
-	if(ioctl(WC, VIDIOC_QUERYBUF, &buf) == -1) {
-		fprintf(stderr, "Querying Buffer");
-		return ;
+	printf("request buffer : %d\n",req.count);
+	if(req.count != VIDEO_BUFFER_COUNT) {
+		vbuffer_count = req.count ;
+		printf("Insufficient buffer\n");
 	}
-	buffer.length = buf.length;
-	buffer.start = mmap (NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, WC, buf.m.offset);
-	printf("Buffer %d\n",buffer.length );
+	
+	/* Query buffer , mmap */
+	int buf_ID ;
+	for(buf_ID = 0 ; buf_ID < vbuffer_count ; buf_ID++) {
+		struct v4l2_buffer buf = {0};
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		buf.index = buf_ID;
+		if(ioctl(WC, VIDIOC_QUERYBUF, &buf) == -1) {
+			fprintf(stderr, "Querying Buffer");
+			return ;
+		}
+		buffer[buf_ID].length = buf.length;
+		buffer[buf_ID].start = mmap (NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, WC, buf.m.offset);
+		printf("mmap Buffer %d\n",buffer[buf_ID].length );
+	}
 }
 /* ------------------------------------------------------------ */
 int webcam_open()
@@ -80,13 +95,15 @@ void webcam_start_capturing(int WC)
 	struct v4l2_buffer buf;
 	enum v4l2_buf_type type;
 
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	buf.memory = V4L2_MEMORY_MMAP;
-	buf.index = 0;
+	int buf_ID ;
+	for(buf_ID = 0 ; buf_ID < vbuffer_count ; buf_ID++) {
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		buf.index = buf_ID;
 
-	if (ioctl(WC, VIDIOC_QBUF, &buf) ==-1)
-		 fprintf(stderr, "VIDIOC_QBUF");
-
+		if (ioctl(WC, VIDIOC_QBUF, &buf) ==-1)
+			fprintf(stderr, "VIDIOC_QBUF");
+	}
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(WC, VIDIOC_STREAMON, &type) == -1)
 		fprintf(stderr, "VIDIOC_STREAMON");
@@ -103,13 +120,17 @@ void webcam_stop_capturing(int WC)
 /* ------------------------------------------------------------ */
 void webcam_release()
 {
-	if (munmap(buffer.start, buffer.length) == -1)
-		fprintf(stderr, "munmap");
+	int buf_ID ;
+	for(buf_ID = 0 ; buf_ID < vbuffer_count ; buf_ID++) {
+		if (munmap(buffer[buf_ID].start, buffer[buf_ID].length) == -1)
+			fprintf(stderr, "munmap");
+	}
 }
 /* ------------------------------------------------------------ */
-int webcam_read_frame(int WC)
+struct vbuffer *webcam_read_frame(int WC)
 {
 	struct v4l2_buffer buf;
+	struct vbuffer *cur_webcam =NULL;
 
 	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	buf.memory = V4L2_MEMORY_MMAP;
@@ -118,12 +139,52 @@ int webcam_read_frame(int WC)
 		fprintf(stderr, "VIDIOC_DQBUF");
 		return 0;
 	}
+	cur_webcam = &buffer[buf.index];
 
 	if (ioctl(WC, VIDIOC_QBUF, &buf) == -1) {
 		fprintf(stderr, "VIDIOC_QBUF");
 		return 0;
 	}
-	return 1;
+	return cur_webcam;
+}
+/* ------------------------------------------------------------ */
+int webcam_set_framerate(int WC, int frate)
+{
+	struct v4l2_streamparm parm;
+	int ret;
+
+	memset(&parm, 0, sizeof parm);
+	parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+	ret = ioctl(WC, VIDIOC_G_PARM, &parm);
+	if (ret < 0) {
+		printf("Unable to get frame rate: %d.\n", errno);
+		return ret;
+	}
+
+	printf("Current frame rate: %u/%u\n",
+		parm.parm.capture.timeperframe.numerator,
+		parm.parm.capture.timeperframe.denominator);
+
+	parm.parm.capture.timeperframe.numerator = 1;
+	parm.parm.capture.timeperframe.denominator = frate;
+
+	ret = ioctl(WC, VIDIOC_S_PARM, &parm);
+	if (ret < 0) {
+		printf("Unable to set frame rate: %d.\n", errno);
+		return ret;
+	}
+
+	ret = ioctl(WC, VIDIOC_G_PARM, &parm);
+	if (ret < 0) {
+		printf("Unable to get frame rate: %d.\n", errno);
+		return ret;
+	}
+
+	printf("Frame rate set: %u/%u\n",
+		parm.parm.capture.timeperframe.numerator,
+		parm.parm.capture.timeperframe.denominator);
+	return 0;
 }
 /* ------------------------------------------------------------ */
 void webcam_show_info(int WC)
@@ -146,12 +207,41 @@ void webcam_show_info(int WC)
 		fsize.index = 0;
 		while (ioctl(WC, VIDIOC_ENUM_FRAMESIZES, &fsize) >= 0) {
 			if (fsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-				printf("%d ,%d\n", fsize.discrete.width, fsize.discrete.height);
+				printf("\t%d ,%d \t, ", fsize.discrete.width, fsize.discrete.height);
 			} else if (fsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
-				printf("%d ,%d\n", fsize.stepwise.max_width, fsize.stepwise.max_height);
+				printf("\t%d ,%d \t, ", fsize.stepwise.max_width, fsize.stepwise.max_height);
 			}
+
+			/* frame rate*/
+			struct v4l2_frmivalenum fival;
+			memset(&fival, 0, sizeof(fival));
+			fival.index = 0;
+			fival.pixel_format = fsize.pixel_format;
+			fival.width = fsize.discrete.width;
+			fival.height = fsize.discrete.height;
+
+			printf("\tTime interval between frame: ");
+			while ((ioctl(WC, VIDIOC_ENUM_FRAMEINTERVALS, &fival)) == 0) {
+				if (fival.type == V4L2_FRMIVAL_TYPE_DISCRETE) {
+					printf("%u/%u, ", fival.discrete.numerator, fival.discrete.denominator);
+				} else if (fival.type == V4L2_FRMIVAL_TYPE_CONTINUOUS) {
+					printf("{min { %u/%u } .. max { %u/%u } }, ", fival.stepwise.min.numerator,
+						 fival.stepwise.min.numerator,
+						fival.stepwise.max.denominator, fival.stepwise.max.denominator);
+					break;
+	        		} else if (fival.type == V4L2_FRMIVAL_TYPE_STEPWISE) {
+					printf("{min { %u/%u } .. max { %u/%u } / stepsize { %u/%u } }, ",
+						fival.stepwise.min.numerator, fival.stepwise.min.denominator,
+						fival.stepwise.max.numerator, fival.stepwise.max.denominator,
+						fival.stepwise.step.numerator, fival.stepwise.step.denominator);
+					break;
+				}
+				fival.index++;
+			}
+			printf("\n");
 			fsize.index++;
 		}
+		printf("---------------------------------------------------\n");
 	}
 }
 /* ------------------------------------------------------------ */

@@ -84,8 +84,13 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 							CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,  //PIX_FMT_YUV420P,
 							SWS_POINT, NULL, NULL, NULL);
 		break ;
+	case V4L2_PIX_FMT_MJPEG :
+		printf("<<set>>\n"); 
+		VOD_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, AV_PIX_FMT_YUVJ422P,
+								CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,
+								SWS_POINT, NULL, NULL, NULL);
 	}
-
+	
 	if(VOD_encoder.img_convert_ctx == NULL) {
 		fprintf(stderr, "Cannot initialize the conversion context!\n");
 		goto ERROR_EXIT;

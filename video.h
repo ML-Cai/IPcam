@@ -22,8 +22,8 @@ void webcam_release();
 void webcam_stop_capturing(int WC);
 void webcam_start_capturing(int WC);
 
-int webcam_read_frame(int WC);
-
+struct vbuffer *webcam_read_frame(int WC);
+int webcam_set_framerate(int WC, int frate);
 void webcam_show_info(int WC);
 /* ------------------------------------------------*/
 #endif

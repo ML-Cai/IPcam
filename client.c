@@ -49,10 +49,10 @@ struct system_information sys_info ;
 /* ------------------------------------------------------------ */
 static void Rx_loop()
 {
-        unsigned int count = 100;
-
 	int Rx_socket ;
 	struct sockaddr_in Rx_addr;
+	struct VOD_DataPacket_struct Rx_Buffer ;
+	/* create socket */
 	if((Rx_socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 		fprintf(stderr, "Socket Faile\n");
 		return ;
@@ -62,20 +62,12 @@ static void Rx_loop()
 	Rx_addr.sin_family = AF_INET;
 	Rx_addr.sin_port = htons(NET_PORT);
 	Rx_addr.sin_addr.s_addr = INADDR_ANY;
-	if(bind(Rx_socket, (struct sockaddr*)&Rx_addr, sizeof(struct sockaddr_in))== -1) {
+	if(bind(Rx_socket, (struct sockaddr *)&Rx_addr, sizeof(struct sockaddr_in))== -1) {
 		fprintf(stderr, "bind error\n");
 		return ;
 	}
 
-	struct timeval t_start,t_end;
-	double uTime =0.0;
-	int total_size=0;
-	gettimeofday(&t_start, NULL);
-
-
 	/* receive data */
-	//char SocketBuffer[SOCKET_BUFFER_SIZE];
-	struct VOD_DataPacket_struct Rx_Buffer ;
 	int recv_len ; 
 	AVPacket packet ;
 	int remain_size =0;
@@ -101,7 +93,7 @@ static void Rx_loop()
 				memcpy(packet.data + ID * 1024, &Rx_Buffer.data.data[0] , Rx_Buffer.data.size);
 
 				remain_size -= Rx_Buffer.data.size;
-				if(remain_size <=0) {	/* receive finish */
+				if(remain_size <= 0) {	/* receive finish */
 					//printf("Decode\n");
 					video_decoder(packet.data, packet.size, &RGB_buffer);
 					RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);

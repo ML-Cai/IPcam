@@ -35,8 +35,6 @@ struct system_information
 	int top ;
 };
 /* ------------------------------------------------------------ */
-extern struct vbuffer buffer ;
-
 int FB ;
 unsigned char *FB_ptr =NULL;
 struct fb_var_screeninfo var_info ;
@@ -48,9 +46,13 @@ unsigned char *RGB565_buffer =NULL;
 struct system_information sys_info ;
 
 /* ------------------------------------------------------------ */
+int wait_webcam_data()
+{
+}
+/* ------------------------------------------------------------ */
 static void mainloop()
 {
-        unsigned int count = 100;
+        unsigned int count = 300;
 
 	int Tx_socket ;
 	struct sockaddr_in Tx_addr;
@@ -69,6 +71,8 @@ static void mainloop()
 	int total_size=0;
 	gettimeofday(&t_start, NULL);
 
+
+	struct vbuffer *webcam_buf;
 	while (count-- > 0) {
 		fd_set fds;
 		struct timeval tv;
@@ -79,7 +83,7 @@ static void mainloop()
 		FD_SET(sys_info.cam.handle, &fds);
 
 		/* Timeout. */
-		tv.tv_sec = 3;
+		tv.tv_sec = 1;
 		tv.tv_usec = 0;
 
 		r = select(sys_info.cam.handle + 1, &fds, NULL, NULL, &tv);
@@ -92,37 +96,38 @@ static void mainloop()
 			perror("select timeout\n");
 			exit(EXIT_FAILURE);
 		}
-
-		if (webcam_read_frame(sys_info.cam.handle)) {
+		webcam_buf = webcam_read_frame(sys_info.cam.handle);
+	//	continue;
+		if (webcam_buf !=NULL) {
 			int offset =1024 ;
 			int id =0;
-			unsigned char * buf_ptr = NULL;
-//			int frame_size = video_encoder(buffer.start, &buf_ptr);
-//			total_size +=frame_size;
+			struct AVPacket *pkt_ptr = video_encoder(webcam_buf->start);
 
 			/* ------------------------------------- */
 			/* decode for test*/
 			unsigned char *RGB_buffer =NULL;
+			
+			/* direct display in localhost */
+			/*
+			video_decoder(pkt_ptr->data, pkt_ptr->size, &RGB_buffer);
+			RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
+			int x , y ;
+			int index_monitor = 0;
+			int index_frame = 0;
 
-			/* direct display in localhost
-			if (frame_size >0) {
-				video_decoder(buf_ptr, frame_size, &RGB_buffer);
-				RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
-				int x , y ;
-				int index_monitor = 0;
-				int index_frame = 0;
-				for(y = 0 ; y < sys_info.cam.height ; y++) {
-					for(x = 0 ; x < sys_info.cam.width ; x++) {
-						index_monitor = (y * 1280 + x) *2;
-						index_frame = (y * sys_info.cam.width + x) *2;
-						*(FB_ptr + index_monitor) = *(RGB565_buffer + index_frame);
-						*(FB_ptr + index_monitor +1) = *(RGB565_buffer +index_frame +1);
-					}
+			for(y = 0 ; y < sys_info.cam.height ; y++) {
+				for(x = 0 ; x < sys_info.cam.width ; x++) {
+					index_monitor = (y * 1280 + x) *2;
+					index_frame = (y * sys_info.cam.width + x) *2;
+					*(FB_ptr + index_monitor) = *(RGB565_buffer + index_frame);
+					*(FB_ptr + index_monitor +1) = *(RGB565_buffer +index_frame +1);
 				}
-			}*/
+			}
+			*/
+
+
 			/* network transmit */
 			//struct AVPacket *pkt_ptr = video_encoder(buffer.start);
-			struct AVPacket *pkt_ptr = video_encoder(buffer.start);
 			struct VOD_DataPacket_struct Tx_Buffer;
 			total_size +=pkt_ptr->size;
 
@@ -134,6 +139,7 @@ static void mainloop()
 			/* Tx data */
 			int slice =0;
 			int remain_size = pkt_ptr->size ;
+
 			while(remain_size > 0) {
 				Tx_Buffer.DataType = VOD_PACKET_TYPE_FRAME_DATA;
 				Tx_Buffer.data.ID = slice ;
@@ -150,6 +156,9 @@ static void mainloop()
 				remain_size -= 1024 ;
 			}
 			/* ------------------------------------- */
+		}
+		else {
+			printf("webcam_read_frame error\n");
 		}
 		/* EAGAIN - continue select loop. */
 	}
@@ -196,6 +205,7 @@ int main()
 	sys_info.cam.height = 240;
 //	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_YUV420;
 	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_YUYV;
+//	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_MJPEG;
 
 	RGB565_buffer = (unsigned char *)malloc(sys_info.cam.width * sys_info.cam.height *2);
 
@@ -211,6 +221,7 @@ int main()
 
 	webcam_show_info(sys_info.cam.handle);
 	webcam_init(sys_info.cam.width, sys_info.cam.height, sys_info.cam.handle);
+//	webcam_set_framerate(sys_info.cam.handle, 20);
 	webcam_start_capturing(sys_info.cam.handle);
 
 	mainloop();
