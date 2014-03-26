@@ -34,8 +34,6 @@ struct system_information
 	int top ;
 };
 /* ------------------------------------------------------------ */
-extern struct vbuffer buffer ;
-
 int FB ;
 unsigned char *FB_ptr =NULL;
 struct fb_var_screeninfo var_info ;
@@ -82,13 +80,13 @@ static void Rx_loop()
 		}
 		else {
 			switch(Rx_Buffer.DataType){
-			case VOD_PACKET_TYPE_FRAME_HEADER :
+			case VOD_PACKET_TYPE_FRAME_HEADER :	/* AVPacket as header */
 				memcpy(&packet, &Rx_Buffer.header , sizeof(AVPacket));
 				packet.data = (unsigned char *)malloc(sizeof(char) * packet.size);
 				remain_size = packet.size;
 				break ;
 
-			case VOD_PACKET_TYPE_FRAME_DATA :
+			case VOD_PACKET_TYPE_FRAME_DATA :	/* AVPacket.data */
 				ID =Rx_Buffer.data.ID ;
 				memcpy(packet.data + ID * 1024, &Rx_Buffer.data.data[0] , Rx_Buffer.data.size);
 
@@ -102,13 +100,12 @@ static void Rx_loop()
 					int index_frame = 0;
 					for(y = 0 ; y < sys_info.cam.height ; y++) {
 						for(x = 0 ; x < sys_info.cam.width ; x++) {
-							index_monitor = (y * 1280 + x) *2;
+							index_monitor = (y * var_info.xres + x) *2;
 							index_frame = (y * sys_info.cam.width + x) *2;
 							*(FB_ptr + index_monitor) = *(RGB565_buffer + index_frame);
 							*(FB_ptr + index_monitor +1) = *(RGB565_buffer +index_frame +1);
 						}
 					}
-
 				}
 				break ;
 			}

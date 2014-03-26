@@ -2,10 +2,10 @@
 all : server client
 
 server : server.c video.o encoder.o decoder.o format.o
-	gcc -o server server.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale
+	gcc -o server server.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread
 
 client : client.c video.o encoder.o decoder.o format.o
-	gcc -o client client.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale
+	gcc -o client client.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread
 
 
 video.o : video.c video.h

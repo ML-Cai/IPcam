@@ -16,7 +16,7 @@
 /* ------------------------------------------------------------ */
 #define VIDEO_BUFFER_COUNT	20
 static int vbuffer_count = VIDEO_BUFFER_COUNT;
-struct vbuffer buffer[VIDEO_BUFFER_COUNT] ;
+static struct vbuffer buffer[VIDEO_BUFFER_COUNT] ;
 /* ------------------------------------------------------------ */
 void webcam_init(int width, int height, int WC)
 {
@@ -136,13 +136,13 @@ struct vbuffer *webcam_read_frame(int WC)
 	buf.memory = V4L2_MEMORY_MMAP;
 
 	if (ioctl(WC, VIDIOC_DQBUF, &buf) == -1) {
-		fprintf(stderr, "VIDIOC_DQBUF");
+		fprintf(stderr, "VIDIOC_DQBUF error\n");
 		return 0;
 	}
 	cur_webcam = &buffer[buf.index];
 
 	if (ioctl(WC, VIDIOC_QBUF, &buf) == -1) {
-		fprintf(stderr, "VIDIOC_QBUF");
+		fprintf(stderr, "VIDIOC_QBUF error\n");
 		return 0;
 	}
 	return cur_webcam;
