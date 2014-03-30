@@ -43,7 +43,7 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 	/* frames per second */
 	VOD_encoder.c_context->time_base.num = 1 ;
 	VOD_encoder.c_context->time_base.den = 30;
-	VOD_encoder.c_context->gop_size = 10; /* emit one intra frame every ten frames */
+	VOD_encoder.c_context->gop_size = 30; /* emit one intra frame every ten frames */
 	VOD_encoder.c_context->max_b_frames = 0;
 	VOD_encoder.c_context->thread_count = 1;
 	VOD_encoder.c_context->pix_fmt = PIX_FMT_YUV420P;
@@ -55,7 +55,7 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 	}
 
 	/* prepare Codec buffer */
-	VOD_encoder.buffer_size = CAMERA_WIDTH * CAMERA_HEIGHT *2;
+	VOD_encoder.buffer_size = CAMERA_WIDTH * CAMERA_HEIGHT *3;
 	VOD_encoder.buffer = (unsigned char *)malloc(VOD_encoder.buffer_size);
 	av_init_packet(&VOD_encoder.pkt);
 	VOD_encoder.pkt.data = VOD_encoder.buffer;
