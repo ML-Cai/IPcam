@@ -1,8 +1,9 @@
+LIB_PATH = ../BBBIOlib/BBBio_lib/
 
 all : server client
 
 server : server.c video.o encoder.o decoder.o format.o
-	gcc -o server server.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread -O3
+	gcc -o server server.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread -O3 -L ${LIB_PATH} -lBBBio
 
 client : client.c video.o encoder.o decoder.o format.o
 	gcc -o client client.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread

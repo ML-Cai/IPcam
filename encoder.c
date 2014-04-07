@@ -25,6 +25,9 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 
 //	M_emcoder.codec = avcodec_find_encoder(AV_CODEC_ID_H264);
 	VOD_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+//	VOD_encoder.codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+
+
 	if (!VOD_encoder.codec) {
 		perror("codec not found\n");
 		goto ERROR_EXIT;

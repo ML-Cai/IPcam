@@ -15,6 +15,9 @@
 #include <linux/fb.h>
 #include <signal.h>
 
+#define __USE_GNU
+#include <sched.h>
+
 #define __STDC_CONSTANT_MACROS
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -24,14 +27,17 @@
 #include "video.h"
 #include "encoder.h"
 #include "VOD_network_packet.h"
+#include "../BBBIOlib/BBBio_lib/BBBiolib.h"
 /* ------------------------------------------------------------ */
 #define NET_PORT        5000
+#define AUDIO_NET_PORT	5005
 #define NET_HOST        "140.125.33.214"
 #define NET_BUFFER_SIZE 1028
 /* ------------------------------------------------------------ */
 #define SYS_STATUS_INIT	1
-#define SYS_STATUS_WORK	2
-#define SYS_STATUS_RELEASE	4
+#define SYS_STATUS_IDLE	2
+#define SYS_STATUS_WORK	4
+#define SYS_STATUS_RELEASE	8
 
 
 #define SYS_CAPABILITY_VIDEO_Tx	1
@@ -59,6 +65,8 @@ unsigned char *RGB565_buffer =NULL;
 struct system_information sys_info ;
 int Rx_thread ;
 int Tx_thread ;
+int Audio_Tx_thread;
+int Audio_Rx_thread;
 /* ------------------------------------------------------------ */
 /* Frame Buffer initial
  *
@@ -106,6 +114,10 @@ void FB_display(unsigned char *RGB565_data_ptr,int top, int left, int width, int
 	int index_monitor_3 =0;
 	int index_monitor_4 =0;
 	int index_frame = 0;
+
+	const int x_offset = (var_info.xres - width)/2 ;
+	const int y_offset = ((var_info.yres - height) /2) * var_info.xres ;
+	const int x_y_offset = x_offset + y_offset ;
 /*
 	for(y = 0 ; y < height ; y++) {
 		for(x = 0 ; x < width ; x++) {
@@ -116,13 +128,12 @@ void FB_display(unsigned char *RGB565_data_ptr,int top, int left, int width, int
 		}
 	}
 */
-
 	for(y = 0 ; y < height ; y++) {
 		for(x = 0 ; x < width ; x++) {
-			index_monitor_1 = (y*2 * var_info.xres + x*2) *2;
-			index_monitor_2 = (y*2 * var_info.xres + (x*2+1)) *2;
-			index_monitor_3 = ((y*2+1) * var_info.xres + x*2) *2;
-			index_monitor_4 = ((y*2+1) * var_info.xres + (x*2+1)) *2;
+			index_monitor_1 = (y*2 * var_info.xres + x*2) *2+ x_y_offset;
+			index_monitor_2 = (y*2 * var_info.xres + (x*2+1)) *2+ x_y_offset;
+			index_monitor_3 = ((y*2+1) * var_info.xres + x*2) *2+ x_y_offset;
+			index_monitor_4 = ((y*2+1) * var_info.xres + (x*2+1)) *2+ x_y_offset;
 			index_frame = (y * sys_info.cam.width + x) *2;
 
 			*(FB_ptr + index_monitor_1) = *(RGB565_buffer + index_frame);
@@ -255,6 +266,7 @@ static void Rx_loop(void * Rx_arg)
 		}
 	}
 	close(Rx_socket);
+	pthread_exit(NULL); 
 }
 /* ------------------------------------------------------------ */
 /* Video Transmit loop
@@ -282,7 +294,7 @@ static void Tx_loop(void * Rx_arg)
 
 	webcam_show_info(sys_info.cam.handle);
 	webcam_init(sys_info.cam.width, sys_info.cam.height, sys_info.cam.handle);
-	webcam_set_framerate(sys_info.cam.handle, 20);
+	webcam_set_framerate(sys_info.cam.handle, 15);
 	webcam_start_capturing(sys_info.cam.handle);
 
 
@@ -293,53 +305,56 @@ static void Tx_loop(void * Rx_arg)
 
 	/* start video capture and transmit */
 	gettimeofday(&t_start, NULL);
-	while (sys_info.status == SYS_STATUS_WORK) {
-		webcam_buf = wait_webcam_data();
-		if (webcam_buf !=NULL) {
-			count++;
-			struct AVPacket *pkt_ptr = video_encoder(webcam_buf->start);
+	while (sys_info.status != SYS_STATUS_RELEASE) {
+		/* start Tx Video */
+		while (sys_info.status == SYS_STATUS_WORK) {
+			webcam_buf = wait_webcam_data();
+			if (webcam_buf !=NULL) {
+				count++;
+				struct AVPacket *pkt_ptr = video_encoder(webcam_buf->start);
 
+				/* ------------------------------------- */
+				/* direct display in localhost */
+				unsigned char *RGB_buffer =NULL;
+				video_decoder(pkt_ptr->data, pkt_ptr->size, &RGB_buffer);
+				RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
+				FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
 
-			/* ------------------------------------- */
-			/* direct display in localhost */
-			unsigned char *RGB_buffer =NULL;
-			video_decoder(pkt_ptr->data, pkt_ptr->size, &RGB_buffer);
-			RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
-			FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
+				total_size +=pkt_ptr->size;
 
-			total_size +=pkt_ptr->size;
+				/* network transmit */
+				struct VOD_DataPacket_struct Tx_Buffer;
 
-			/* network transmit */
-			struct VOD_DataPacket_struct Tx_Buffer;
-
-			/* Tx header */
-			Tx_Buffer.DataType = VOD_PACKET_TYPE_FRAME_HEADER;
-			memcpy(&Tx_Buffer.header, pkt_ptr, sizeof(AVPacket));
-			sendto(Tx_socket, (char *)&Tx_Buffer, sizeof(Tx_Buffer), 0, (struct sockaddr *)&Tx_addr, sizeof(struct sockaddr_in));
-
-			/* Tx data */
-			int slice =0;
-			int offset =1024 ;
-			int remain_size = pkt_ptr->size ;
-
-			while(remain_size > 0) {
-				Tx_Buffer.DataType = VOD_PACKET_TYPE_FRAME_DATA;
-				Tx_Buffer.data.ID = slice ;
-				if (remain_size < 1024) {	/* verify transmit data size*/
-					Tx_Buffer.data.size = remain_size ;
-				}
-				else {
-					Tx_Buffer.data.size = 1024 ;
-				}
-				memcpy(&Tx_Buffer.data.data[0], pkt_ptr->data + slice * 1024, sizeof(char) * Tx_Buffer.data.size);
+				/* Tx header */
+				Tx_Buffer.DataType = VOD_PACKET_TYPE_FRAME_HEADER;
+				memcpy(&Tx_Buffer.header, pkt_ptr, sizeof(AVPacket));
 				sendto(Tx_socket, (char *)&Tx_Buffer, sizeof(Tx_Buffer), 0, (struct sockaddr *)&Tx_addr, sizeof(struct sockaddr_in));
-				slice ++ ;
-				remain_size -= 1024 ;
+
+				/* Tx data */
+				int offset =1024 ;
+				int remain_size = pkt_ptr->size ;
+
+				Tx_Buffer.DataType = VOD_PACKET_TYPE_FRAME_DATA;
+				Tx_Buffer.data.ID = 0 ;
+				while(remain_size > 0) {
+					if (remain_size < 1024) {	/* verify transmit data size*/
+						Tx_Buffer.data.size = remain_size ;
+					}
+					else {
+						Tx_Buffer.data.size = 1024 ;
+					}
+					memcpy(&Tx_Buffer.data.data[0], pkt_ptr->data + Tx_Buffer.data.ID * 1024, sizeof(char) * Tx_Buffer.data.size);
+					sendto(Tx_socket, (char *)&Tx_Buffer, sizeof(Tx_Buffer), 0, (struct sockaddr *)&Tx_addr, sizeof(struct sockaddr_in));
+					Tx_Buffer.data.ID ++ ;
+					remain_size -= Tx_Buffer.data.size ;
+				}
+				sleep(0);
+			}
+			else {
+				printf("webcam_read_frame error\n");
 			}
 		}
-		else {
-			printf("webcam_read_frame error\n");
-		}
+		usleep(50000);
 	}
 	gettimeofday(&t_end, NULL);
 	uTime = (t_end.tv_sec -t_start.tv_sec)*1000000.0 +(t_end.tv_usec -t_start.tv_usec);
@@ -350,6 +365,78 @@ static void Tx_loop(void * Rx_arg)
 	webcam_stop_capturing(sys_info.cam.handle);
 	webcam_release(sys_info.cam.handle);
 	close(sys_info.cam.handle);
+	pthread_exit(NULL); 
+}
+/* ------------------------------------------------------------ */
+#define AUDIO_SAMPLE_RATE	44100
+#define AUDIO_BUFFER_SIZE	1028
+static void Audio_Tx_loop(void * Voice_Tx_arg)
+{
+	int Tx_socket =-1;
+	struct sockaddr_in dest;
+	unsigned int Audio_buffer[AUDIO_SAMPLE_RATE];
+	unsigned char Audio_net_buffer[AUDIO_BUFFER_SIZE] ={0};
+
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(AUDIO_NET_PORT);
+	inet_aton(NET_HOST, &dest.sin_addr);
+	
+	Tx_socket = socket(AF_INET, SOCK_DGRAM, 0);
+	if(Tx_socket < 0) {
+		fprintf(stderr, "socket error\n");
+		return ;
+	}
+
+	const int clk_div = 34 ;
+	const int open_dly = 1;
+	const int sample_dly = 1;
+
+	BBBIO_ADCTSC_module_ctrl(clk_div);
+	BBBIO_ADCTSC_channel_ctrl(BBBIO_ADC_AIN0, BBBIO_ADC_STEP_MODE_SW_CONTINUOUS, open_dly, sample_dly, BBBIO_ADC_STEP_AVG_1, Audio_buffer, AUDIO_SAMPLE_RATE);
+
+	/* Set scheduler */
+	int PID =getpid();
+	struct sched_param param;
+	int maxpri = sched_get_priority_max(SCHED_FIFO);
+	param.sched_priority=maxpri ;
+	sched_setscheduler(PID , SCHED_FIFO ,&param );
+	int count =0;
+
+	printf("Audio Tx\n");
+	struct timeval t_start,t_end;
+	float mTime =0;
+	while (sys_info.status != SYS_STATUS_RELEASE) {	
+		/* start Tx Audeo */
+		while (sys_info.status == SYS_STATUS_WORK) {
+			/* fetch data from ADC */
+			BBBIO_ADCTSC_channel_enable(BBBIO_ADC_AIN0);
+			gettimeofday(&t_start, NULL);
+			BBBIO_ADCTSC_work(AUDIO_SAMPLE_RATE);
+			gettimeofday(&t_end, NULL);
+
+			mTime = (t_end.tv_sec -t_start.tv_sec)*1000000.0 +(t_end.tv_usec -t_start.tv_usec);
+			mTime /=1000000.0f;
+			printf("Sampling finish , fetch [%d] samples in %lfs\n", AUDIO_BUFFER_SIZE, mTime);
+
+
+			int buf_size = sizeof(int) * AUDIO_SAMPLE_RATE;
+			unsigned char * buf_ptr = (unsigned char *)Audio_buffer;
+			int offset =1024 ;
+			int ID =0;
+			int frame_size = buf_size;
+			printf("send\n");
+			while(frame_size >0) {
+				memcpy(&Audio_net_buffer[0], &ID, sizeof(int));
+				memcpy(&Audio_net_buffer[4], buf_ptr + ID * 1024, sizeof(char) * offset);
+				sendto(Tx_socket, &Audio_net_buffer[0], (4 + offset) , 0, (struct sockaddr *)&dest, sizeof(dest));
+				frame_size -= 1024 ;
+				ID ++ ;
+				if(frame_size <1024) offset = frame_size ;
+			}
+		}
+	}
+	printf("finish\n");
+	pthread_exit(NULL); 	
 }
 /* ------------------------------------------------------------ */
 void SIGINT_release(int arg)
@@ -360,8 +447,14 @@ void SIGINT_release(int arg)
 /* ------------------------------------------------------------ */
 int main()
 {
+	/* BBBIOlib init*/
+	iolib_init();
+	iolib_setdir(8,11, BBBIO_DIR_IN);	/* Button */
+	iolib_setdir(8,12, BBBIO_DIR_OUT);	/* LED */
+
+
 	//sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_VIDEO_Rx | SYS_CAPABILITY_AUDIO_Tx | SYS_CAPABILITY_AUDIO_Rx;
-	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx;
+	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_AUDIO_Tx;
 	sys_info.status = SYS_STATUS_INIT;
 	sys_info.cam.width = 320;
 	sys_info.cam.height = 240;
@@ -384,19 +477,34 @@ int main()
 		fprintf(stderr, "Frame Buffer init error\n");
 	}
 
-
+	sys_info.status = SYS_STATUS_IDLE;
 	/* Create Video thread */
 	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) 
 		pthread_create(&Rx_thread, NULL, &Rx_loop, NULL);
 	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) 
 		pthread_create(&Tx_thread, NULL, &Tx_loop, NULL);
 
+	/* Create Audio thread*/
+	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Tx) 
+		pthread_create(&Audio_Tx_thread, NULL, &Audio_Tx_loop, NULL);
 
 	/* Signale SIGINT */
-	sys_info.status = SYS_STATUS_WORK;
-	signal (SIGINT, SIGINT_release);
+	signal(SIGINT, SIGINT_release);
 
+	while(sys_info.status != SYS_STATUS_RELEASE) {
+		/* Button on */
+		if (is_high(8,11)) {
+			sys_info.status = SYS_STATUS_WORK;
+			pin_high(8, 12);	/* LED on*/
+		}
+		else {
+			sys_info.status = SYS_STATUS_IDLE;
+			pin_low(8, 12);	/* LED off */
+		}
+		usleep(100000);
 
+	}
+	pin_low(8, 12); /* LED off */
 	/* Voice thread */
 
 	/* *******************************************************
@@ -405,12 +513,11 @@ int main()
 	 *
 	 * *******************************************************/
 
-	pause();
 	/* release */
 	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) 
 		pthread_join(Tx_thread,NULL);
-	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) 
-		pthread_join(Rx_thread,NULL);
+//	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) 
+//		pthread_join(Rx_thread,NULL);
 
 	munmap(FB_ptr, FB_scerrn_size);
 	close(FB);
