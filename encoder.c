@@ -9,7 +9,7 @@
 #include <libavutil/rational.h>
 
 #include "encoder.h"
-
+#include "format.h"
 /* ------------------------------------------------------------ */
 static int CAMERA_WIDTH =0;
 static int CAMERA_HEIGHT =0;
@@ -42,13 +42,13 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 	/* resolution must be a multiple of two */
 	VOD_encoder.c_context->width = CAMERA_WIDTH;
 	VOD_encoder.c_context->height = CAMERA_HEIGHT;
-
+	printf("encoder %d %d\n",VOD_encoder.c_context->width ,VOD_encoder.c_context->height);
 	/* frames per second */
 	VOD_encoder.c_context->time_base.num = 1 ;
-	VOD_encoder.c_context->time_base.den = 30;
-	VOD_encoder.c_context->gop_size = 30; /* emit one intra frame every ten frames */
+	VOD_encoder.c_context->time_base.den = 20;
+	VOD_encoder.c_context->gop_size = 60; /* emit one intra frame every ten frames */
 	VOD_encoder.c_context->max_b_frames = 0;
-	VOD_encoder.c_context->thread_count = 1;
+	VOD_encoder.c_context->thread_count = 4;
 	VOD_encoder.c_context->pix_fmt = PIX_FMT_YUV420P;
 
 	/* open it */
@@ -66,6 +66,7 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 
 
 	YUV420P_buf = (unsigned char *)malloc(CAMERA_HEIGHT * CAMERA_WIDTH * 2);
+	memset(YUV420P_buf, 0, CAMERA_HEIGHT * CAMERA_WIDTH * 2);
 	VOD_encoder.picture_buf = YUV420P_buf;
 	VOD_encoder.frame_YUV420P->data[0] = VOD_encoder.picture_buf;
 	VOD_encoder.frame_YUV420P->data[1] = VOD_encoder.frame_YUV420P->data[0] + (CAMERA_WIDTH * CAMERA_HEIGHT);
@@ -92,6 +93,11 @@ void video_encoder_init(int width, int height, int pixel_fmt)
 		VOD_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, AV_PIX_FMT_YUVJ422P,
 								CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,
 								SWS_POINT, NULL, NULL, NULL);
+	case PIX_FMT_RGB565LE :
+		printf("<<PIX_FMT_RGB565LE, %d %d>>\n", CAMERA_WIDTH, CAMERA_HEIGHT); 
+	        VOD_encoder.img_convert_ctx = sws_getContext( CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_RGB565LE, //PIX_FMT_YUYV422,
+                        	                        CAMERA_WIDTH, CAMERA_HEIGHT, PIX_FMT_YUV420P,  //PIX_FMT_YUV420P,
+							SWS_POINT, NULL, NULL, NULL);
 	}
 	
 	if(VOD_encoder.img_convert_ctx == NULL) {
@@ -125,13 +131,15 @@ struct AVPacket *video_encoder(unsigned char *raw_buf)
 	int raw_buf_linesize = CAMERA_WIDTH *2 ;
 
 	/* Scale and transform YUV422 format to YUV420P*/
-
-
+/*
 	sws_scale(VOD_encoder.img_convert_ctx,
 		&raw_buf_ptr , &raw_buf_linesize,
 		0, VOD_encoder.c_context->height,
 		VOD_encoder.frame_YUV420P->data, VOD_encoder.frame_YUV420P->linesize);
-
+*/
+//	RGB565_to_YUV420P(raw_buf_ptr, VOD_encoder.frame_YUV420P->data[0], CAMERA_WIDTH, CAMERA_HEIGHT);
+	RGB565_to_YUV420P(raw_buf_ptr, VOD_encoder.frame_YUV420P->data[0],VOD_encoder.frame_YUV420P->data[1], VOD_encoder.frame_YUV420P->data[2],  CAMERA_WIDTH, CAMERA_HEIGHT);
+	return NULL ;
 //	memcpy(VOD_encoder.frame_YUV420P->data[0], raw_buf ,sizeof(char)*CAMERA_WIDTH* CAMERA_HEIGHT*2 );
 
 	static int pts = 0;
