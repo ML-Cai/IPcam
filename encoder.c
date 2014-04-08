@@ -131,15 +131,14 @@ struct AVPacket *video_encoder(unsigned char *raw_buf)
 	int raw_buf_linesize = CAMERA_WIDTH *2 ;
 
 	/* Scale and transform YUV422 format to YUV420P*/
-/*
+
 	sws_scale(VOD_encoder.img_convert_ctx,
 		&raw_buf_ptr , &raw_buf_linesize,
 		0, VOD_encoder.c_context->height,
 		VOD_encoder.frame_YUV420P->data, VOD_encoder.frame_YUV420P->linesize);
-*/
+
 //	RGB565_to_YUV420P(raw_buf_ptr, VOD_encoder.frame_YUV420P->data[0], CAMERA_WIDTH, CAMERA_HEIGHT);
-	RGB565_to_YUV420P(raw_buf_ptr, VOD_encoder.frame_YUV420P->data[0],VOD_encoder.frame_YUV420P->data[1], VOD_encoder.frame_YUV420P->data[2],  CAMERA_WIDTH, CAMERA_HEIGHT);
-	return NULL ;
+//	RGB565_to_YUV420P(raw_buf_ptr, VOD_encoder.frame_YUV420P->data[0],VOD_encoder.frame_YUV420P->data[1], VOD_encoder.frame_YUV420P->data[2],  CAMERA_WIDTH, CAMERA_HEIGHT);
 //	memcpy(VOD_encoder.frame_YUV420P->data[0], raw_buf ,sizeof(char)*CAMERA_WIDTH* CAMERA_HEIGHT*2 );
 
 	static int pts = 0;

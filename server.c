@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <linux/fb.h>
 #include <signal.h>
+#include <pthread.h>
 
 #define __USE_GNU
 #include <sched.h>
@@ -40,10 +41,10 @@
 #define SYS_STATUS_RELEASE	8
 
 
-#define SYS_CAPABILITY_VIDEO_Tx	1
-#define SYS_CAPABILITY_VIDEO_Rx	2
-#define SYS_CAPABILITY_AUDIO_Tx	4
-#define SYS_CAPABILITY_AUDIO_Rx	8
+#define SYS_CAPABILITY_VIDEO_Tx	0x1
+#define SYS_CAPABILITY_VIDEO_Rx	0x2
+#define SYS_CAPABILITY_AUDIO_Tx	0x4
+#define SYS_CAPABILITY_AUDIO_Rx	0x8
 
 struct system_information
 {
@@ -63,10 +64,30 @@ struct fb_fix_screeninfo fix_info ;
 unsigned char *RGB565_buffer =NULL;
 
 struct system_information sys_info ;
-int Rx_thread ;
-int Tx_thread ;
-int Audio_Tx_thread;
-int Audio_Rx_thread;
+pthread_t Video_Rx_thread ;
+pthread_t Video_Tx_thread ;
+pthread_t Audio_Tx_thread;
+pthread_t Audio_Rx_thread;
+pthread_mutex_t threadcount = PTHREAD_MUTEX_INITIALIZER;
+/* ------------------------------------------------------------ */
+/* Get System status 
+ *	using Mutex to ensure all thread access successful
+ */
+int sys_get_status()
+{
+	int ret ;
+	pthread_mutex_lock(&threadcount);
+	ret = sys_info.status;
+	pthread_mutex_unlock(&threadcount);
+	return ret ;
+}
+void sys_set_status(int status)
+{
+	pthread_mutex_lock(&threadcount);
+	sys_info.status = status;
+	pthread_mutex_unlock(&threadcount);
+}
+
 /* ------------------------------------------------------------ */
 /* Frame Buffer initial
  *
@@ -115,19 +136,12 @@ void FB_display(unsigned char *RGB565_data_ptr,int top, int left, int width, int
 	int index_monitor_4 =0;
 	int index_frame = 0;
 
+	/* center picture */
 	const int x_offset = (var_info.xres - width)/2 ;
 	const int y_offset = ((var_info.yres - height) /2) * var_info.xres ;
 	const int x_y_offset = x_offset + y_offset ;
-/*
-	for(y = 0 ; y < height ; y++) {
-		for(x = 0 ; x < width ; x++) {
-			index_monitor_1 = (y * var_info.xres + x) *2;
-			index_frame = (y * sys_info.cam.width + x) *2;
-			*(FB_ptr + index_monitor_1) = *(RGB565_buffer + index_frame);
-			*(FB_ptr + index_monitor_1 +1) = *(RGB565_buffer +index_frame +1);
-		}
-	}
-*/
+
+
 	for(y = 0 ; y < height ; y++) {
 		for(x = 0 ; x < width ; x++) {
 			index_monitor_1 = (y*2 * var_info.xres + x*2) *2+ x_y_offset;
@@ -152,6 +166,20 @@ void FB_display(unsigned char *RGB565_data_ptr,int top, int left, int width, int
 		}
 	}
 
+}
+void FB_clear(int width, int height) 
+{
+	int x , y ;
+	int index_monitor = 0;
+	int index_frame = 0;
+	for(y = 0 ; y < height ; y++) {
+		for(x = 0 ; x < width ; x++) {
+			index_monitor = (y * var_info.xres + x) *2;
+
+			*(FB_ptr + index_monitor) =0;
+			*(FB_ptr + index_monitor +1) =0;
+		}
+	}
 }
 /* ------------------------------------------------------------ */
 struct vbuffer * wait_webcam_data()
@@ -211,7 +239,7 @@ static int Rx_socket_init(int *Rx_socket, struct sockaddr_in *Rx_addr)
 	return 1;
 }
 /* ------------------------------------------------------------ */
-static void Rx_loop(void * Rx_arg)
+static void *Video_Rx_loop()
 {
 	int Rx_socket;
 	struct sockaddr_in Rx_addr;
@@ -231,41 +259,46 @@ static void Rx_loop(void * Rx_arg)
 	int ID ;
 	int count =0;
 
-	while(sys_info.status == SYS_STATUS_WORK) {
-		recv_len = recv(Rx_socket, (char*)&Rx_Buffer, sizeof(Rx_Buffer) , 0) ;
-		if(recv_len == -1) {
-			fprintf(stderr ,"Stream data recv() error\n");
-			break ;
-		}
-		else {
-			switch(Rx_Buffer.DataType) {
-			case VOD_PACKET_TYPE_FRAME_HEADER :	/* AVPacket as header */
-				memcpy(&packet, &Rx_Buffer.header , sizeof(AVPacket));
-				packet.data = (unsigned char *)malloc(sizeof(char) * packet.size);
-				remain_size = packet.size;
-				break ;
-
-			case VOD_PACKET_TYPE_FRAME_DATA :	/* AVPacket.data */
-				ID = Rx_Buffer.data.ID ;
-				memcpy(packet.data + ID * 1024, &Rx_Buffer.data.data[0] , Rx_Buffer.data.size);
-
-				remain_size -= Rx_Buffer.data.size;
-				 /* receive finish */
-				if(remain_size <= 0) {	/* receive finish */
-					/* Decode frame */
-					video_decoder(packet.data, packet.size, &RGB_buffer);
-
-					/* Display in Frame buffer*/
-					RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
-					FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
-					av_free_packet(&packet);
-				}
-				count ++;
+	while(sys_get_status() != SYS_STATUS_RELEASE) {
+		/* Rx video data */
+		while(sys_get_status() == SYS_STATUS_WORK) {
+			recv_len = recv(Rx_socket, (char*)&Rx_Buffer, sizeof(Rx_Buffer) , 0) ;
+			if(recv_len == -1) {
+				fprintf(stderr ,"Stream data recv() error\n");
 				break ;
 			}
+			else {
+				switch(Rx_Buffer.DataType) {
+				case VOD_PACKET_TYPE_FRAME_HEADER :	/* AVPacket as header */
+					memcpy(&packet, &Rx_Buffer.header , sizeof(AVPacket));
+					packet.data = (unsigned char *)malloc(sizeof(char) * packet.size);
+					remain_size = packet.size;
+					break ;
+
+				case VOD_PACKET_TYPE_FRAME_DATA :	/* AVPacket.data */
+					ID = Rx_Buffer.data.ID ;
+					memcpy(packet.data + ID * 1024, &Rx_Buffer.data.data[0] , Rx_Buffer.data.size);
+
+					remain_size -= Rx_Buffer.data.size;
+					/* receive finish */
+					if(remain_size <= 0) {
+						/* Decode frame */
+						video_decoder(packet.data, packet.size, &RGB_buffer);
+
+						/* Display in Frame buffer*/
+						RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
+						FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
+						av_free_packet(&packet);
+					}
+					count ++;
+					break ;
+				}
+			}
 		}
+		usleep(50000);
 	}
 	close(Rx_socket);
+	printf("Video Rx finish\n");
 	pthread_exit(NULL); 
 }
 /* ------------------------------------------------------------ */
@@ -273,7 +306,7 @@ static void Rx_loop(void * Rx_arg)
  *
  *	only transmit Video data , fetch data from webcam , and ecoder that as YUV420 frame .
  */
-static void Tx_loop(void * Rx_arg)
+static void *Video_Tx_loop()
 {
         unsigned int count = 0;
 
@@ -304,10 +337,11 @@ static void Tx_loop(void * Rx_arg)
 	struct vbuffer *webcam_buf;
 
 	/* start video capture and transmit */
+	printf("Video Tx\n");
 	gettimeofday(&t_start, NULL);
-	while (sys_info.status != SYS_STATUS_RELEASE) {
+	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* start Tx Video */
-		while (sys_info.status == SYS_STATUS_WORK) {
+		while (sys_get_status() == SYS_STATUS_WORK) {
 			webcam_buf = wait_webcam_data();
 			if (webcam_buf !=NULL) {
 				count++;
@@ -315,12 +349,12 @@ static void Tx_loop(void * Rx_arg)
 
 				/* ------------------------------------- */
 				/* direct display in localhost */
-				unsigned char *RGB_buffer =NULL;
+				unsigned char *RGB_buffer = NULL;
 				video_decoder(pkt_ptr->data, pkt_ptr->size, &RGB_buffer);
 				RGB24_to_RGB565(RGB_buffer, RGB565_buffer, sys_info.cam.width, sys_info.cam.height);
 				FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
 
-				total_size +=pkt_ptr->size;
+				total_size += pkt_ptr->size;
 
 				/* network transmit */
 				struct VOD_DataPacket_struct Tx_Buffer;
@@ -330,7 +364,7 @@ static void Tx_loop(void * Rx_arg)
 				memcpy(&Tx_Buffer.header, pkt_ptr, sizeof(AVPacket));
 				sendto(Tx_socket, (char *)&Tx_Buffer, sizeof(Tx_Buffer), 0, (struct sockaddr *)&Tx_addr, sizeof(struct sockaddr_in));
 
-				/* Tx data */
+				/* Tx data , 1024 bit per transmit */
 				int offset =1024 ;
 				int remain_size = pkt_ptr->size ;
 
@@ -348,7 +382,6 @@ static void Tx_loop(void * Rx_arg)
 					Tx_Buffer.data.ID ++ ;
 					remain_size -= Tx_Buffer.data.size ;
 				}
-				sleep(0);
 			}
 			else {
 				printf("webcam_read_frame error\n");
@@ -370,7 +403,7 @@ static void Tx_loop(void * Rx_arg)
 /* ------------------------------------------------------------ */
 #define AUDIO_SAMPLE_RATE	44100
 #define AUDIO_BUFFER_SIZE	1028
-static void Audio_Tx_loop(void * Voice_Tx_arg)
+static void *Audio_Tx_loop()
 {
 	int Tx_socket =-1;
 	struct sockaddr_in dest;
@@ -391,7 +424,8 @@ static void Audio_Tx_loop(void * Voice_Tx_arg)
 	const int open_dly = 1;
 	const int sample_dly = 1;
 
-	BBBIO_ADCTSC_module_ctrl(clk_div);
+	BBBIO_ADCTSC_module_ctrl(BBBIO_ADC_WORK_MODE_TIMER_INT ,clk_div);
+//	BBBIO_ADCTSC_module_ctrl(BBBIO_ADC_WORK_MODE_BUSY_POLLING ,clk_div);
 	BBBIO_ADCTSC_channel_ctrl(BBBIO_ADC_AIN0, BBBIO_ADC_STEP_MODE_SW_CONTINUOUS, open_dly, sample_dly, BBBIO_ADC_STEP_AVG_1, Audio_buffer, AUDIO_SAMPLE_RATE);
 
 	/* Set scheduler */
@@ -405,9 +439,9 @@ static void Audio_Tx_loop(void * Voice_Tx_arg)
 	printf("Audio Tx\n");
 	struct timeval t_start,t_end;
 	float mTime =0;
-	while (sys_info.status != SYS_STATUS_RELEASE) {	
+	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* start Tx Audeo */
-		while (sys_info.status == SYS_STATUS_WORK) {
+		while(sys_get_status() == SYS_STATUS_WORK) {
 			/* fetch data from ADC */
 			BBBIO_ADCTSC_channel_enable(BBBIO_ADC_AIN0);
 			gettimeofday(&t_start, NULL);
@@ -416,15 +450,13 @@ static void Audio_Tx_loop(void * Voice_Tx_arg)
 
 			mTime = (t_end.tv_sec -t_start.tv_sec)*1000000.0 +(t_end.tv_usec -t_start.tv_usec);
 			mTime /=1000000.0f;
-			printf("Sampling finish , fetch [%d] samples in %lfs\n", AUDIO_BUFFER_SIZE, mTime);
-
+			printf("Sampling finish , fetch [%d] samples in %lfs\n", AUDIO_SAMPLE_RATE, mTime);
 
 			int buf_size = sizeof(int) * AUDIO_SAMPLE_RATE;
 			unsigned char * buf_ptr = (unsigned char *)Audio_buffer;
 			int offset =1024 ;
 			int ID =0;
 			int frame_size = buf_size;
-			printf("send\n");
 			while(frame_size >0) {
 				memcpy(&Audio_net_buffer[0], &ID, sizeof(int));
 				memcpy(&Audio_net_buffer[4], buf_ptr + ID * 1024, sizeof(char) * offset);
@@ -433,16 +465,18 @@ static void Audio_Tx_loop(void * Voice_Tx_arg)
 				ID ++ ;
 				if(frame_size <1024) offset = frame_size ;
 			}
+
 		}
+		usleep(100000);
 	}
-	printf("finish\n");
+	printf("Audio Tx finish\n");
 	pthread_exit(NULL); 	
 }
 /* ------------------------------------------------------------ */
 void SIGINT_release(int arg)
 {
+	sys_set_status(SYS_STATUS_RELEASE);
 	printf("System Relase ... \n");
-	sys_info.status = SYS_STATUS_RELEASE;	
 }
 /* ------------------------------------------------------------ */
 int main()
@@ -453,14 +487,16 @@ int main()
 	iolib_setdir(8,12, BBBIO_DIR_OUT);	/* LED */
 
 
-	//sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_VIDEO_Rx | SYS_CAPABILITY_AUDIO_Tx | SYS_CAPABILITY_AUDIO_Rx;
-	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_AUDIO_Tx;
+	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_VIDEO_Rx | SYS_CAPABILITY_AUDIO_Tx | SYS_CAPABILITY_AUDIO_Rx;
+//	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_AUDIO_Tx;
+//	sys_info.capability =SYS_CAPABILITY_AUDIO_Tx;
+//	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx;
+
 	sys_info.status = SYS_STATUS_INIT;
 	sys_info.cam.width = 320;
 	sys_info.cam.height = 240;
 //	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_YUV420;
 	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_YUYV;
-//	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_MJPEG;
 
 	/* alloc RGB565 buffer for frame buffer data store */
 	RGB565_buffer = (unsigned char *)malloc(sys_info.cam.width * sys_info.cam.height *2);
@@ -476,36 +512,36 @@ int main()
 	if(FB_init() == 0) {
 		fprintf(stderr, "Frame Buffer init error\n");
 	}
+	FB_clear(var_info.xres, var_info.yres);
 
-	sys_info.status = SYS_STATUS_IDLE;
+	sys_set_status(SYS_STATUS_IDLE);
+
 	/* Create Video thread */
-	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) 
-		pthread_create(&Rx_thread, NULL, &Rx_loop, NULL);
-	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) 
-		pthread_create(&Tx_thread, NULL, &Tx_loop, NULL);
+	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) pthread_create(&Video_Rx_thread, NULL, Video_Rx_loop, NULL);
+	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) pthread_create(&Video_Tx_thread, NULL, Video_Tx_loop, NULL);
 
 	/* Create Audio thread*/
-	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Tx) 
-		pthread_create(&Audio_Tx_thread, NULL, &Audio_Tx_loop, NULL);
+	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Tx) pthread_create(&Audio_Tx_thread, NULL, Audio_Tx_loop, NULL);
 
 	/* Signale SIGINT */
 	signal(SIGINT, SIGINT_release);
 
-	while(sys_info.status != SYS_STATUS_RELEASE) {
+	/* Main loop */
+	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* Button on */
 		if (is_high(8,11)) {
-			sys_info.status = SYS_STATUS_WORK;
+			sys_set_status(SYS_STATUS_WORK);
 			pin_high(8, 12);	/* LED on*/
 		}
 		else {
-			sys_info.status = SYS_STATUS_IDLE;
+			FB_clear(var_info.xres, var_info.yres);
+			sys_set_status(SYS_STATUS_IDLE);
 			pin_low(8, 12);	/* LED off */
 		}
-		usleep(100000);
-
+		//usleep(100000);
+		sleep(1);
 	}
 	pin_low(8, 12); /* LED off */
-	/* Voice thread */
 
 	/* *******************************************************
 	 * Main thread for SIP server communication and HW process
@@ -514,10 +550,9 @@ int main()
 	 * *******************************************************/
 
 	/* release */
-	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) 
-		pthread_join(Tx_thread,NULL);
-//	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) 
-//		pthread_join(Rx_thread,NULL);
+	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) pthread_join(Video_Tx_thread,NULL);
+//	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) pthread_join(Video_Rx_thread,NULL);
+	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Tx) pthread_join(Audio_Tx_thread,NULL);
 
 	munmap(FB_ptr, FB_scerrn_size);
 	close(FB);
