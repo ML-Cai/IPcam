@@ -263,11 +263,34 @@ static void *Video_Rx_loop()
 	int remain_size =0;
 	unsigned char *RGB_buffer =NULL;	/* feedback pointer */
 	int ID ;
-	int count =0;
+
+	fd_set fds;
+	struct timeval tv;
+	int r;
 
 	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* Rx video data */
 		while(sys_get_status() == SYS_STATUS_WORK) {
+
+			/* Timeout. */
+			FD_ZERO(&fds);
+			FD_SET(Rx_socket, &fds);
+			tv.tv_sec = 2;
+			tv.tv_usec = 0;
+
+			r = select(Rx_socket + 1, &fds, NULL, NULL, &tv);
+			if (r == -1) {
+				fprintf(stderr, "select");
+				goto VIDEO_RX_RELEASE ;
+			}
+			if (r == 0) {
+				//fprintf(stderr, "select timeout\n");
+				/* Timeout to clear FrameBuffer */
+				FB_clear(var_info.xres, var_info.yres);
+				continue;
+			}
+
+			/* Receive Data */
 			recv_len = recv(Rx_socket, (char*)&Rx_Buffer, sizeof(Rx_Buffer) , 0) ;
 			if(recv_len == -1) {
 				fprintf(stderr ,"Stream data recv() error\n");
@@ -296,13 +319,14 @@ static void *Video_Rx_loop()
 						FB_display(RGB565_buffer, 0, 0, sys_info.cam.width, sys_info.cam.height);
 						av_free_packet(&packet);
 					}
-					count ++;
 					break ;
 				}
 			}
 		}
 		usleep(50000);
 	}
+
+VIDEO_RX_RELEASE :
 	close(Rx_socket);
 	printf("Video Rx finish\n");
 	pthread_exit(NULL); 
@@ -343,7 +367,7 @@ static void *Video_Tx_loop()
 	struct vbuffer *webcam_buf;
 
 	/* start video capture and transmit */
-	printf("Video Tx\n");
+	printf("Video Tx Looping\n");
 	gettimeofday(&t_start, NULL);
 	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* start Tx Video */
@@ -395,10 +419,8 @@ static void *Video_Tx_loop()
 		}
 		usleep(50000);
 	}
-
-
-
 	gettimeofday(&t_end, NULL);
+
 	uTime = (t_end.tv_sec -t_start.tv_sec)*1000000.0 +(t_end.tv_usec -t_start.tv_usec);
 	printf("Total size : %d bit , frame count : %d\n", total_size, count);
 	printf("Time :%lf us\n", uTime);
@@ -412,7 +434,8 @@ static void *Video_Tx_loop()
 /* ------------------------------------------------------------ */
 #define AUDIO_SAMPLE_RATE	44100
 #define AUDIO_BUFFER_SIZE	1028
- #define AUDIO_Rx_PLAY_BUFFER_COUNT      10
+#define AUDIO_Rx_PLAY_BUFFER_COUNT      10
+
 static void *Audio_Tx_loop()
 {
 	int Tx_socket =-1;
@@ -444,35 +467,12 @@ static void *Audio_Tx_loop()
 	int maxpri = sched_get_priority_max(SCHED_FIFO);
 	param.sched_priority=maxpri ;
 	sched_setscheduler(PID , SCHED_FIFO ,&param );
-	int count =0;
-
-
-	/*-------------------------*/
-/*
-	ALCdevice *PlayDevice ;
-	ALCcontext* PlayContext ;
-	ALuint PlaySource; 
-	ALuint PlayBuffer[AUDIO_Rx_PLAY_BUFFER_COUNT]; 
-
-	printf("Audio_Tx_loop\n");
-	PlayDevice = alcOpenDevice(NULL);
-	printf("%X\n",PlayDevice);
-	PlayContext = alcCreateContext(PlayDevice, NULL); 
-
-	alcMakeContextCurrent(PlayContext); 
-
-	alGenSources(1, &PlaySource);
-	alGenBuffers(AUDIO_Rx_PLAY_BUFFER_COUNT, PlayBuffer); 
-*/
-	int Bufcount =0;
 	unsigned short play_Audio_buf[44100];
 	int i;
 
 	/*----------------------------*/
 
-
-
-	printf("Audio Tx\n");
+	printf("Audio Tx Looping\n");
 	struct timeval t_start,t_end;
 	float mTime =0;
 	while(sys_get_status() != SYS_STATUS_RELEASE) {
@@ -484,19 +484,7 @@ static void *Audio_Tx_loop()
 			BBBIO_ADCTSC_work(AUDIO_SAMPLE_RATE);
 			gettimeofday(&t_end, NULL);
 
-			/*------------------------------------------*/
-/*
-			for(i=0 ;i< 44100; i++){
-				*(play_Audio_buf+i) = *(Audio_buffer+i) *250 ;
-			}
-			alBufferData(PlayBuffer[Bufcount], AL_FORMAT_MONO16, (ALvoid *)play_Audio_buf ,sizeof(short) * 44100, 44100);
-			alSourcei(PlaySource, AL_BUFFER, PlayBuffer[Bufcount]); 
-			alSourcePlay(PlaySource);
-			Bufcount++;
-			if(Bufcount ==10) Bufcount = 0;
-*/
-			/*------------------------------------------*/
-
+			/* Transmit Data */
 			for(i = 0 ; i < 44100 ; i++){
 				play_Audio_buf[i] = Audio_buffer[i];
 			}
@@ -523,12 +511,6 @@ static void *Audio_Tx_loop()
 		}
 		usleep(100000);
 	}
-	/*------------------------------------------*/
-	//alcCloseDevice(PlayDevice);
-	//alcDestroyContext(PlayContext);
-	//alDeleteSources(1, &PlaySource); 
-	//alDeleteBuffers(AUDIO_Rx_PLAY_BUFFER_COUNT, PlayBuffer); 
-	 /*------------------------------------------*/
 	printf("Audio Tx finish\n");
 	pthread_exit(NULL); 	
 }
@@ -551,12 +533,8 @@ static void *Audio_Rx_loop()
 	ALuint PlaySource; 
 	ALuint PlayBuffer[AUDIO_Rx_PLAY_BUFFER_COUNT]; 
 
-	printf("Audio Rx looping\n");
-
 	PlayDevice = alcOpenDevice(NULL);
-	printf("Rx Audio Device :%X\n",PlayDevice);
 	PlayContext = alcCreateContext(PlayDevice, NULL); 
-	printf("Rx Audio PlayContext :%X\n", PlayContext);
 
 	alcMakeContextCurrent(PlayContext); 
 
@@ -581,7 +559,6 @@ static void *Audio_Rx_loop()
 	IFT_plan = fftw_plan_dft_c2r_1d(AUDIO_SAMPLE_RATE, FT_out,IFT_in, (int)FFTW_ESTIMATE);
 
 
-	int Buf_ID =0;
 	int Buf_counter =0;
 	unsigned short play_Audio_buf[AUDIO_SAMPLE_RATE];
 	int recv_len;
@@ -589,12 +566,36 @@ static void *Audio_Rx_loop()
 	int remain_size = AUDIO_SAMPLE_RATE * sizeof(short);
 	unsigned char Rx_Buffer[AUDIO_BUFFER_SIZE];
 	int i;
+
+	fd_set fds;
+	struct timeval tv;
+	int r;
+
+	printf("Audio Tx Looping\n");
 	while(sys_get_status() != SYS_STATUS_RELEASE) {
 		/* start Tx Audeo */
-		printf("Audio Rx 1\n");
 		while(sys_get_status() == SYS_STATUS_WORK) {
+
+			/* Timeout. */
+			FD_ZERO(&fds);
+			FD_SET(Rx_socket, &fds);
+			tv.tv_sec = 2;
+			tv.tv_usec = 0;
+
+			r = select(Rx_socket + 1, &fds, NULL, NULL, &tv);
+			if (r == -1) {
+				fprintf(stderr, "select");
+				goto AUDIO_RX_RELEASE;
+			}
+			if (r == 0) {
+				//fprintf(stderr, "select timeout\n");
+				/* Timeout to clear FrameBuffer */
+				continue;
+			}
+
+
+			/*Receive Data */
 			recv_len = recv(Rx_socket, (char*)&Rx_Buffer, sizeof(Rx_Buffer) , 0) ;
-			
 			if(recv_len == -1) {
 				fprintf(stderr ,"Stream data recv() error\n");
 				break ;
@@ -607,16 +608,16 @@ static void *Audio_Rx_loop()
 				/* receive finish */
 				if(remain_size <= 0) {
 					for(i = 0; i < AUDIO_SAMPLE_RATE; i++) {
-						*(FT_in + i) = play_Audio_buf[i] * 160;
+						*(FT_in + i) = play_Audio_buf[i] * 128;
 					}
 
 					fftw_execute(FT_plan);
 
-					for(i = 0 ; i < 400 ; i++) {
+					for(i = 0 ; i < 300 ; i++) {
 						FT_out[i][0] = 0;
 						FT_out[i][1] = 0;
 					}
-					for(i = 6000 ; i < FOURIER_NUMBER ; i++) {
+					for(i = 7000 ; i < FOURIER_NUMBER ; i++) {
 						FT_out[i][0] = 0;
 						FT_out[i][1] = 0;
 					}
@@ -624,14 +625,14 @@ static void *Audio_Rx_loop()
 					fftw_execute(IFT_plan);
 
 					for(i = 0; i < AUDIO_SAMPLE_RATE; i++) {
-						play_Audio_buf[i] = (IFT_in[i] /AUDIO_SAMPLE_RATE) *60.0f;
+						play_Audio_buf[i] = (IFT_in[i] /AUDIO_SAMPLE_RATE) * 10 + 15000;
+						if(play_Audio_buf[i] > 32767) play_Audio_buf[i] =32767;
 					}
 
 
-					/* Decode frame */
-					printf("Play\n");
-					alSourceStop(PlaySource);
+					/* Play Audio */
 					alBufferData(PlayBuffer[Buf_counter], AL_FORMAT_MONO16, (ALvoid *)play_Audio_buf ,sizeof(short) * 44100, 44100);
+					alSourceStop(PlaySource);
 					alSourcei(PlaySource, AL_BUFFER, PlayBuffer[Buf_counter]); 
 					alSourcePlay(PlaySource);
 					Buf_counter++;
@@ -642,6 +643,8 @@ static void *Audio_Rx_loop()
 		}
 		usleep(50000);
 	}
+
+AUDIO_RX_RELEASE :
 	/*------------------------------------------*/
 	alcCloseDevice(PlayDevice);
 	alcDestroyContext(PlayContext);
@@ -649,6 +652,7 @@ static void *Audio_Rx_loop()
 	alDeleteBuffers(AUDIO_Rx_PLAY_BUFFER_COUNT, PlayBuffer); 
 	 /*------------------------------------------*/
 	printf("Audio Rx finish\n");
+	pthread_exit(NULL);
 }
 /* ------------------------------------------------------------ */
 void SIGINT_release(int arg)
@@ -684,7 +688,7 @@ int main()
 
 //	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_VIDEO_Rx | SYS_CAPABILITY_AUDIO_Tx | SYS_CAPABILITY_AUDIO_Rx;
 //	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx | SYS_CAPABILITY_AUDIO_Tx;
-	sys_info.capability =SYS_CAPABILITY_AUDIO_Tx | SYS_CAPABILITY_AUDIO_Rx;
+	sys_info.capability =SYS_CAPABILITY_AUDIO_Rx | SYS_CAPABILITY_VIDEO_Rx;
 //	sys_info.capability = SYS_CAPABILITY_VIDEO_Tx;
 
 	sys_info.status = SYS_STATUS_INIT;
@@ -748,8 +752,10 @@ int main()
 
 	/* release */
 	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Tx) pthread_join(Video_Tx_thread,NULL);
-//	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) pthread_join(Video_Rx_thread,NULL);
+	if(sys_info.capability & SYS_CAPABILITY_VIDEO_Rx) pthread_join(Video_Rx_thread,NULL);
 	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Tx) pthread_join(Audio_Tx_thread,NULL);
+	if(sys_info.capability & SYS_CAPABILITY_AUDIO_Rx) pthread_join(Audio_Rx_thread,NULL);
+
 
 	munmap(FB_ptr, FB_scerrn_size);
 	close(FB);
