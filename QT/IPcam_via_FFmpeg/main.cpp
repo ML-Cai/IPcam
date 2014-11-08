@@ -31,8 +31,8 @@ pthread_t Video_Rx_thread ;
 #define VIDEO_NET_PORT	5000
 #define AUDIO_NET_PORT	5005
 
-#define STREAM_WIDTH    640
-#define STREAM_HEIGHT   480
+#define STREAM_WIDTH    800
+#define STREAM_HEIGHT   600
 /* ------------------------------------------------------------ */
 static int Rx_socket_init(int *Rx_socket, struct sockaddr_in *Rx_addr, int Rx_port)
 {
