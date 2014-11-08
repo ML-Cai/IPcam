@@ -1,26 +1,19 @@
-LIB_PATH = ../BBBIOlib/BBBio_lib/
+FFMPEG_PATH = /opt/ffmpeg
 
-all : server client
+FFMPEG_INCLUDE_PATH = ${FFMPEG_PATH}/include
+FFMPEG_LIB_PATH = ${FFMPEG_PATH}/lib
+FFMPEG_LIB_SET = -lavutil -lavcodec -lavformat -lswscale -lswresample
 
-server : server.c video.o encoder.o decoder.o format.o
-	gcc -o server server.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread -O3 -L ${LIB_PATH} -lBBBio -lopenal -lfftw3
+all : IPcam
 
-client : client.c video.o encoder.o decoder.o format.o
-	gcc -o client client.c video.o encoder.o decoder.o format.o -lavformat -lavcodec -lavutil -lswscale -pthread
-
+IPcam : main.c video.o encoder.o
+	gcc -o IPcam main.c video.o encoder.o -I${FFMPEG_PATH}/include -L${FFMPEG_PATH}/lib ${FFMPEG_LIB_SET} -pthread -O3
 
 video.o : video.c video.h
-	gcc -c video.c
+	gcc -c video.c -I${FFMPEG_INCLUDE_PATH}
 
 encoder.o : encoder.c encoder.h
-	gcc -c encoder.c
-
-decoder.o : decoder.c decoder.h
-	gcc -c decoder.c
-
-format.o : format.c format.h
-	gcc -c format.c -O3
-
+	gcc -c encoder.c -I${FFMPEG_INCLUDE_PATH}
 
 clean :
-	rm client server video.o encoder.o decoder.o format.o
+	rm -f IPcam video.o encoder.o

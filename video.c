@@ -34,11 +34,13 @@ void webcam_init(int width, int height, int WC)
 	fmt.fmt.pix.height = height;
 	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_YUYV;
 //	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
-//	fmt.fmt.pix.pixelformat =V4L2_PIX_FMT_MJPEG;
+//	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
 
-	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
+//	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED;
 //	fmt.fmt.pix.field = V4L2_FIELD_ANY;
-//	fmt.fmt.pix.field = V4L2_FIELD_NONE;
+	fmt.fmt.pix.field = V4L2_FIELD_NONE;
+
+	printf("set %d %d\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
 
 	if (ioctl(WC, VIDIOC_S_FMT, &fmt) == -1) {
 		fprintf(stderr, "Setting Pixel Format");
@@ -74,7 +76,6 @@ void webcam_init(int width, int height, int WC)
 		}
 		buffer[buf_ID].length = buf.length;
 		buffer[buf_ID].start = mmap (NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, WC, buf.m.offset);
-		printf("mmap Buffer %d\n",buffer[buf_ID].length );
 	}
 }
 /* ------------------------------------------------------------ */
@@ -84,7 +85,7 @@ int webcam_open()
 
 	if (cam == -1) {
 		fprintf(stderr, "Cannot open '%s': %d, %s\n", "/dev/video0", errno, strerror(errno));
-		exit(EXIT_FAILURE);
+		return 0;
 	}
 	/* return device handle */
 	return cam;
@@ -111,7 +112,7 @@ void webcam_start_capturing(int WC)
 /* ------------------------------------------------------------ */
 void webcam_stop_capturing(int WC)
 {
-        enum v4l2_buf_type type;
+	enum v4l2_buf_type type;
 
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(WC, VIDIOC_STREAMOFF, &type) == -1)
@@ -136,13 +137,13 @@ struct vbuffer *webcam_read_frame(int WC)
 	buf.memory = V4L2_MEMORY_MMAP;
 
 	if (ioctl(WC, VIDIOC_DQBUF, &buf) == -1) {
-		fprintf(stderr, "VIDIOC_DQBUF error\n");
+		perror("VIDIOC_DQBUF error\n");
 		return 0;
 	}
 	cur_webcam = &buffer[buf.index];
 
 	if (ioctl(WC, VIDIOC_QBUF, &buf) == -1) {
-		fprintf(stderr, "VIDIOC_QBUF error\n");
+		perror("VIDIOC_QBUF error\n");
 		return 0;
 	}
 	return cur_webcam;

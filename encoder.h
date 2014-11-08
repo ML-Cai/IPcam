@@ -11,10 +11,11 @@ struct encoder_struct
 
 	unsigned char *buffer ;
 	int buffer_size;
-	unsigned char *picture_buf;;
+	unsigned char *picture_buf;
 };
+
 /* ----------------------------------------------------------- */
-void video_encoder_init(int width, int hegiht, int pixel_fmt);
+int video_encoder_init(int src_width, int src_height, int src_pixel_fmt, int dst_width, int dst_height);
 void video_encoder_release();
 //int video_encoder(unsigned char *raw_buf ,unsigned char **ret_buf);
 struct AVPacket *video_encoder(unsigned char *raw_buf);
