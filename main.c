@@ -132,8 +132,8 @@ static void *Video_Tx_loop()
 	 *			Capture format : YUYV
 	 *			Frame rate : 5 frame/s
 	 */
-	sys_info.cam.width = 800;
-	sys_info.cam.height = 600;
+	sys_info.cam.width = 640;
+	sys_info.cam.height = 480;
 	sys_info.cam.pixel_fmt = V4L2_PIX_FMT_YUYV;
 	sys_info.cam.handle = webcam_open();
 	if(sys_info.cam.handle == 0)

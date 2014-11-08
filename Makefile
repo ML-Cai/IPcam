@@ -1,4 +1,4 @@
-FFMPEG_PATH = /opt/ffmpeg
+FFMPEG_PATH = /opt/FFmpeg
 
 FFMPEG_INCLUDE_PATH = ${FFMPEG_PATH}/include
 FFMPEG_LIB_PATH = ${FFMPEG_PATH}/lib
